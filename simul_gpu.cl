@@ -7,8 +7,8 @@ typedef long int int64;
 constant int ex[LATTICE_Q] = {0, 1, 0, -1, 0, 1, -1, -1, 1};
 constant int ey[LATTICE_Q] = {0, 0, 1, 0, -1, 1, 1, -1, -1};
 constant float lattice_w[LATTICE_Q] = {4/9.0f, 1/9.0f, 1/9.0f, 1/9.0f, 1/9.0f, 1/36.0f, 1/36.0f, 1/36.0f, 1/36.0f};
-constant float64 cs2 = 1/3.0f;
-constant float64 nu = 0.001f;
+#define cs2 1/3.0f
+#define nu 0.001f
 #define tau (nu/cs2 + 0.5f)
 
 kernel int IDXYQ(int x, int y, int q) {
