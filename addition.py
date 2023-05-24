@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # du au fait que les arrondis sont != sur CPU et GPU
     print(np.allclose(res_np, a_np + b_np+np.float32(1.03)))  # vérification, vrai
 
-    prog.difference(queue, (10,), None, a_g, b_g)
+    prog.difference(queue, (10,), None, a_g, b_g)  # i entre 0 et 9
     cl.enqueue_copy(queue, res_np, a_g)
     print(res_np)
     print(np.allclose(res_np, a_np - b_np))

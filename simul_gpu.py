@@ -1,17 +1,11 @@
-#!/usr/bin/env python3
-
+import imageio.v2 as imageio
+import pyopencl as cl
 import numpy as np
 import time
 from evtk import hl as vtkhl
-import imageio.v2 as imageio
-
-# Domaine
-LATTICE_D = 2
-LATTICE_Q = 9
-# SIZE_X = 60
-# SIZE_Y = 40
 
 # Constantes
+SIZE_X, SIZE_Y, LATTICE_Q = 2, 3, 9
 ex = np.array([0, 1, 0, -1, 0, 1, -1, -1, 1])
 ey = np.array([0, 0, 1, 0, -1, 1, 1, -1, -1])
 lattice_w = np.array([4/9] + [1/9] * 4 + [1/36] * 4)  # poids des directions
@@ -68,19 +62,6 @@ def flow_properties(N):
     return rho, u, v
 
 
-cs4x2 = 2*cs2**2
-cs2x2 = 2*cs2
-
-
-def equilibrium_distribution1(rho, u, v):
-    Neq = np.zeros((SIZE_X, SIZE_Y, LATTICE_Q), dtype=np.float64)
-    vsq = u**2 + v**2
-    for q in range(LATTICE_Q):
-        vci = u * ex[q] + v * ey[q]
-        Neq[:, :, q] = rho*lattice_w[q]*(1.+vci/cs2+vci**2/cs4x2-vsq/cs2x2)
-    return Neq
-
-
 def equilibrium_distribution(rho, u, v):
     def p(t2, t1):
         return np.tensordot(t2, t1, axes=0)
@@ -92,33 +73,8 @@ def equilibrium_distribution(rho, u, v):
     return Neq
 
 
-# SIZE_X, SIZE_Y = 2, 3
-
-# rho = np.ones((SIZE_X, SIZE_Y), dtype=np.float64)
-# u = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-# v = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-# N = equilibrium_distribution(rho, u, v)
-# print(N.shape)
-# print(N)
-# N2 = equilibrium_distribution(rho, u, v)
-# print(N2.shape)
-
-# def stream(N):
-#     # return N au temps t+1
-# R = np.zeros_like(N)
-# for x in range(SIZE_X):
-#     for y in range(SIZE_Y):
-#         for q in range(LATTICE_Q):
-#             xp = (x + ex[q]) % SIZE_X
-#             yp = (y + ey[q]) % SIZE_Y
-#             R[xp, yp, q] = N[x, y, q]
-# return R
-
-
 def stream(N, P):
     return N.reshape(SIZE_X*SIZE_Y*LATTICE_Q)[P].reshape(SIZE_X, SIZE_Y, LATTICE_Q)
-
-# Collision
 
 
 def collide(N):
@@ -153,38 +109,48 @@ def impose_vel(N, domain, uy):
         N[x, y, :] = equilibrium_distribution(1., 0., uy)
     return N
 
-######################################################################
-# Conditions limites enviornnement nfini vitesse nulles et pressiosns nulles au bord
-# pas de réflexion
-
 
 if __name__ == '__main__':
+    pl = cl.get_platforms()[0]  # platform
+    dv = pl.get_devices()[1]  # device
+    ctx = cl.Context(devices=[dv])  # contexte
+    queue = cl.CommandQueue(ctx)
+    mf = cl.mem_flags
+    #
+    prog = cl.Program(ctx, open("simul_gpu.cl").read()).build()
+    # INIT
 
-    # Init
-    start_time = time.time()
-    SIZE_X, SIZE_Y, walls = open_image('pipo/dessin.png')
+    rho = np.ones(SIZE_X * SIZE_Y, dtype=np.float64)
+    u = np.zeros(SIZE_X * SIZE_Y, dtype=np.float64)
+    v = np.zeros(SIZE_X * SIZE_Y, dtype=np.float64)
+    N = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.float64)
+    #
+    rho_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=rho)
+    u_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=u)
+    v_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=v)
+    N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
+    #
+    prog.equilibrium_distribution(
+        queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, rho_g, u_g, v_g)
+    cl.enqueue_copy(queue, N, N_g)
+    # Test
+    N_test = equilibrium_distribution(
+        rho, u, v).reshape(SIZE_X*SIZE_Y*LATTICE_Q)
+    print(np.allclose(N, N_test))
+    save_to_vtk(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q), "flute", "img")
+    # Calcul des permutations gpu
+    P = np.zeros(SIZE_X*SIZE_Y*LATTICE_Q, dtype=np.int64)
+    P_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=P)
+    prog.calc_permutations(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, P_g)
+    cl.enqueue_copy(queue, P, P_g)
 
-    rho = np.ones((SIZE_X, SIZE_Y), dtype=np.float64)
-    u = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-    v = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-    P = calc_permutations()
-    N = equilibrium_distribution(rho, u, v)
-    # Modification de la distribution initiale
-    N[:, 10:20, :] = equilibrium_distribution(1.0, 5e-2, 0.0)
-    cond_lim = np.array([(j, 0) for j in range(0, SIZE_X)])
+    # Test
+    P_test = calc_permutations().reshape(SIZE_X*SIZE_Y*LATTICE_Q)
+    print(np.allclose(P, P_test))
+    print(P)
+    print(P_test)
 
-    save_to_vtk(N, 'rond')
-
-    # Calcul de la simulation
-    # ATTENTION : l'orde dépend de si le bouceback propage après coup ou avant !!!!!!!
-    for t in range(300):
-        N = collide(N)
-        impose_vel(N, cond_lim, 0.05)  # condition aux limites
-        N = stream(N, P)  # propagation
-        N = bounce_back(N)
-        if t % 10 == 0:
-            save_to_vtk(N, 'rond')
-            print(t)
-
-    # Afficher le temps d'exécution
-    print('temps de calcul', time.time() - start_time)
+    # Boucle
+    # for t in range(300):
+    #     prog.collide(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g)
+    #     prog.stream(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, P_g)
