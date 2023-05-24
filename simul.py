@@ -154,7 +154,7 @@ def impose_vel(N, domain, uy):
     return N
 
 ######################################################################
-# Conditions limites enviornnement nfini vitesse nulles et pressiosns nulles au bord
+# Conditions limites enviornnement infini vitesse nulles et pressiosns nulles au bord
 # pas de réflexion
 
 

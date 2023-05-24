@@ -3,6 +3,7 @@ import pyopencl as cl
 import numpy as np
 import time
 from evtk import hl as vtkhl
+import pyopencl.cltypes
 
 # Constantes
 SIZE_X, SIZE_Y, LATTICE_Q = 2, 3, 9
@@ -118,8 +119,8 @@ if __name__ == '__main__':
     mf = cl.mem_flags
     #
     prog = cl.Program(ctx, open("simul_gpu.cl").read()).build()
-    # INIT
 
+    # INIT
     rho = np.ones(SIZE_X * SIZE_Y, dtype=np.float64)
     u = np.zeros(SIZE_X * SIZE_Y, dtype=np.float64)
     v = np.zeros(SIZE_X * SIZE_Y, dtype=np.float64)
@@ -129,28 +130,48 @@ if __name__ == '__main__':
     u_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=u)
     v_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=v)
     N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
-    #
+
+    # Eq dist
     prog.equilibrium_distribution(
         queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, rho_g, u_g, v_g)
     cl.enqueue_copy(queue, N, N_g)
     # Test
     N_test = equilibrium_distribution(
-        rho, u, v).reshape(SIZE_X*SIZE_Y*LATTICE_Q)
-    print(np.allclose(N, N_test))
+        rho.reshape(SIZE_X, SIZE_Y), u.reshape(SIZE_X, SIZE_Y), v.reshape(SIZE_X, SIZE_Y))
+
+    print(np.allclose(N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q)))
+
+    # Récupérer N pour save to vtk
     save_to_vtk(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q), "flute", "img")
+
     # Calcul des permutations gpu
-    P = np.zeros(SIZE_X*SIZE_Y*LATTICE_Q, dtype=np.int64)
+    P = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.int32)
     P_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=P)
     prog.calc_permutations(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, P_g)
     cl.enqueue_copy(queue, P, P_g)
-
     # Test
-    P_test = calc_permutations().reshape(SIZE_X*SIZE_Y*LATTICE_Q)
+    P_test = calc_permutations()
+    # print(P.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+    # print(P_test.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
     print(np.allclose(P, P_test))
-    print(P)
-    print(P_test)
 
     # Boucle
-    # for t in range(300):
-    #     prog.collide(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g)
-    #     prog.stream(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, P_g)
+    for t in range(1):
+        # Collide
+        prog.collide(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
+                     None, N_g, rho_g, u_g, v_g)
+        # Test collide
+        cl.enqueue_copy(queue, N, N_g)
+        N_test = collide(N_test)
+        print(np.allclose(N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q)))
+
+        # Stream
+        prog.stream(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, P_g)
+        # Test stream
+        cl.enqueue_copy(queue, N, N_g)
+        N_test = stream(N_test, P_test)
+        print(np.allclose(N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q)))
+
+        # Bounce back
+        prog.bounce_back(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
+                         None, N_g, walls_g)
