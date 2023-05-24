@@ -1,5 +1,3 @@
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-
 typedef long double float64;
 typedef long int int64;
 #define SIZE_X 2
@@ -13,9 +11,6 @@ constant float64 cs2 = 1/3.0f;
 constant float64 nu = 0.001f;
 #define tau (nu/cs2 + 0.5f)
 
-
-
-
 kernel int IDXYQ(int x, int y, int q) {
   return (x * SIZE_Y + y ) * LATTICE_Q + q;
 }
@@ -23,7 +18,6 @@ kernel int IDXYQ(int x, int y, int q) {
 kernel int IDXY(int x, int y) {
   return x * SIZE_Y + y;
 }
-
 
 kernel void equilibrium_distribution(__global float64 *N, __global float64 *rho, __global float64 *u, __global float64 *v) {
   int x = get_global_id(0);
@@ -49,18 +43,7 @@ kernel void equilibrium_distribution_inline(float64 *N, __global float64 *rho, _
   N[xyq] = rhow * (1 + vci/cs2 + vci*vci/(2*cs2*cs2) - vsq/(2*cs2));
 }
 
-// def calc_permutations():
-//     P = np.zeros(SIZE_X*SIZE_Y*LATTICE_Q, dtype=np.int64)
-//     for x in range(SIZE_X):
-//         for y in range(SIZE_Y):
-//             for q in range(LATTICE_Q):
-//                 xp = (x + ex[q]) % SIZE_X
-//                 yp = (y + ey[q]) % SIZE_Y
-//                 P[IDXY(xp, yp, q)] = IDXY(x, y, q)
-//     return P
-
-int modulo(int dividend, int divisor);
-inline int modulo(int dividend, int divisor) {
+kernel int modulo(int dividend, int divisor) {
     int result = dividend % divisor;
     if (result < 0) {
         result += divisor;
@@ -77,13 +60,6 @@ kernel void calc_permutations(__global int *P) {
   P[IDXYQ(xp, yp, q)] = IDXYQ(x, y, q);
 }
 
-// def flow_properties(N):
-//     rho = np.sum(N, axis=2)
-//     u = np.sum(N * ex, axis=2) / rho
-//     v = np.sum(N * ey, axis=2) / rho
-//     return rho, u, v
-
-// void flow_properties(__global float64 *N, __global float64 *rho, __global float64 *u, __global float64 *v);
 kernel void flow_properties(__global float64 *N, __global float64 *rho, __global float64 *u, __global float64 *v) {
   int x = get_global_id(0);
   int y = get_global_id(1);
@@ -102,12 +78,6 @@ kernel void flow_properties(__global float64 *N, __global float64 *rho, __global
   v[xy] = vxy / rhoxy;
 }
 
-
-// def collide(N):
-//     rho, u, v = flow_properties(N)
-//     Neq = equilibrium_distribution(rho, u, v)
-//     return N - (N-Neq)/tau
-
 kernel void collide(__global float64 *N, __global float64 *rho, __global float64 *u, __global float64 *v) {
   int x = get_global_id(0);
   int y = get_global_id(1);
@@ -118,9 +88,6 @@ kernel void collide(__global float64 *N, __global float64 *rho, __global float64
   equilibrium_distribution_inline(Neq,rho, u, v);
   N[xyq] = N[xyq] - (N[xyq] - Neq[xyq])/tau;
 }
-
-// def stream(N, P):
-//     return N.reshape(SIZE_X*SIZE_Y*LATTICE_Q)[P].reshape(SIZE_X, SIZE_Y, LATTICE_Q)
 
 kernel void stream(__global float64 *N, __global int *P) {
   int x = get_global_id(0);

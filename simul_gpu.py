@@ -173,5 +173,5 @@ if __name__ == '__main__':
         print(np.allclose(N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q)))
 
         # Bounce back
-        prog.bounce_back(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
-                         None, N_g, walls_g)
+        # prog.bounce_back(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
+        #                  None, N_g, walls_g)
