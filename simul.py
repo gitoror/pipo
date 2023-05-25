@@ -162,7 +162,7 @@ if __name__ == '__main__':
 
     # Init
     start_time = time.time()
-    SIZE_X, SIZE_Y, walls = open_image('pipo/dessin.png')
+    SIZE_X, SIZE_Y, walls = open_image('dessin.png')
 
     rho = np.ones((SIZE_X, SIZE_Y), dtype=np.float64)
     u = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
@@ -170,6 +170,7 @@ if __name__ == '__main__':
     P = calc_permutations()
     N = equilibrium_distribution(rho, u, v)
     # Modification de la distribution initiale
+    # la dist de chaque pixel (x,y) (de profondeur 9) tq y va 10 à 20 devient la dist d'un point de vitesse 0.05 selon x et de pression 1
     N[:, 10:20, :] = equilibrium_distribution(1.0, 5e-2, 0.0)
     cond_lim = np.array([(j, 0) for j in range(0, SIZE_X)])
 
