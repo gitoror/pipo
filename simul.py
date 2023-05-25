@@ -1,15 +1,10 @@
-#!/usr/bin/env python3
-
 import numpy as np
 import time
 from evtk import hl as vtkhl
 import imageio.v2 as imageio
 
-# Domaine
-LATTICE_D = 2
 LATTICE_Q = 9
-# SIZE_X = 60
-# SIZE_Y = 40
+# SIZE_X, SIZE_Y = 2, 3
 
 # Constantes
 ex = np.array([0, 1, 0, -1, 0, 1, -1, -1, 1])
@@ -58,27 +53,12 @@ def open_image(filename):
         SIZE_Y) if sum(image[i, j, :]) < 20], dtype=np.int64)
     return SIZE_X, SIZE_Y, walls
 
-# Simulation
-
 
 def flow_properties(N):
     rho = np.sum(N, axis=2)
     u = np.sum(N * ex, axis=2) / rho
     v = np.sum(N * ey, axis=2) / rho
     return rho, u, v
-
-
-cs4x2 = 2*cs2**2
-cs2x2 = 2*cs2
-
-
-def equilibrium_distribution1(rho, u, v):
-    Neq = np.zeros((SIZE_X, SIZE_Y, LATTICE_Q), dtype=np.float64)
-    vsq = u**2 + v**2
-    for q in range(LATTICE_Q):
-        vci = u * ex[q] + v * ey[q]
-        Neq[:, :, q] = rho*lattice_w[q]*(1.+vci/cs2+vci**2/cs4x2-vsq/cs2x2)
-    return Neq
 
 
 def equilibrium_distribution(rho, u, v):
@@ -92,46 +72,14 @@ def equilibrium_distribution(rho, u, v):
     return Neq
 
 
-# SIZE_X, SIZE_Y = 2, 3
-
-# rho = np.ones((SIZE_X, SIZE_Y), dtype=np.float64)
-# u = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-# v = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
-# N = equilibrium_distribution(rho, u, v)
-# print(N.shape)
-# print(N)
-# N2 = equilibrium_distribution(rho, u, v)
-# print(N2.shape)
-
-# def stream(N):
-#     # return N au temps t+1
-# R = np.zeros_like(N)
-# for x in range(SIZE_X):
-#     for y in range(SIZE_Y):
-#         for q in range(LATTICE_Q):
-#             xp = (x + ex[q]) % SIZE_X
-#             yp = (y + ey[q]) % SIZE_Y
-#             R[xp, yp, q] = N[x, y, q]
-# return R
-
-
 def stream(N, P):
     return N.reshape(SIZE_X*SIZE_Y*LATTICE_Q)[P].reshape(SIZE_X, SIZE_Y, LATTICE_Q)
-
-# Collision
 
 
 def collide(N):
     rho, u, v = flow_properties(N)
     Neq = equilibrium_distribution(rho, u, v)
     return N - (N-Neq)/tau
-
-
-# Walls
-walls = np.array([], dtype=np.int64)
-Lwall = 50
-for i in range(Lwall):
-    walls = np.append(walls, np.array([i, 10], dtype=np.int64))
 
 
 # Bounce back boundary conditions (parois)
@@ -154,16 +102,12 @@ def impose_vel(N, domain, uy):
     return N
 
 ######################################################################
-# Conditions limites enviornnement infini vitesse nulles et pressiosns nulles au bord
-# pas de réflexion
 
 
 if __name__ == '__main__':
-
     # Init
     start_time = time.time()
     SIZE_X, SIZE_Y, walls = open_image('dessin.png')
-
     rho = np.ones((SIZE_X, SIZE_Y), dtype=np.float64)
     u = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
     v = np.zeros((SIZE_X, SIZE_Y), dtype=np.float64)
@@ -171,21 +115,22 @@ if __name__ == '__main__':
     N = equilibrium_distribution(rho, u, v)
     # Modification de la distribution initiale
     # la dist de chaque pixel (x,y) (de profondeur 9) tq y va 10 à 20 devient la dist d'un point de vitesse 0.05 selon x et de pression 1
-    N[:, 10:20, :] = equilibrium_distribution(1.0, 5e-2, 0.0)
+    N[:, 10:20, :] = equilibrium_distribution(1.1, 5e-2, 0.0)
     cond_lim = np.array([(j, 0) for j in range(0, SIZE_X)])
-
-    save_to_vtk(N, 'rond')
-
+    save_to_vtk(N, 'flute_cpu')
     # Calcul de la simulation
     # ATTENTION : l'orde dépend de si le bouceback propage après coup ou avant !!!!!!!
-    for t in range(300):
+    for t in range(3000):
         N = collide(N)
         impose_vel(N, cond_lim, 0.05)  # condition aux limites
         N = stream(N, P)  # propagation
         N = bounce_back(N)
         if t % 10 == 0:
-            save_to_vtk(N, 'rond')
+            save_to_vtk(N, 'flute_cpu')
             print(t)
-
-    # Afficher le temps d'exécution
     print('temps de calcul', time.time() - start_time)
+
+
+# idées :
+# Conditions limites enviornnement infini vitesse nulles
+# et pressiosns nulles au bord pas de réflexion
