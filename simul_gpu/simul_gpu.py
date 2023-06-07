@@ -6,13 +6,12 @@ from evtk import hl as vtkhl
 import pyopencl.cltypes
 
 # Constantes
-# SIZE_X, SIZE_Y = 2, 3
 LATTICE_Q = 9
 ex = np.array([0, 1, 0, -1, 0, 1, -1, -1, 1])
 ey = np.array([0, 0, 1, 0, -1, 1, 1, -1, -1])
 lattice_w = np.array([4/9] + [1/9] * 4 + [1/36] * 4)  # poids des directions
 cs2 = sum(lattice_w * ex * ex)  # vitesse du son au carré
-nu = 0.1  # viscosité cinématique
+nu = 0.001  # viscosité cinématique
 tau = nu/cs2 + 1/2  # temps de relaxation
 
 # Utilitaires
@@ -106,22 +105,7 @@ def impose_vel(N, domain, uy):
     return N
 
 
-def update_file(SIZE_X, SIZE_Y):
-    with open('simul_gpu.cl', 'r') as f:
-        lines = f.readlines()
-
-    with open('simul_gpu.cl', 'w') as f:
-        for line in lines:
-            if "#define SIZE_X" in line:
-                line = f"#define SIZE_X {SIZE_X}\n"
-            if "#define SIZE_Y" in line:
-                line = f"#define SIZE_Y {SIZE_Y}\n"
-            if "#define nu" in line:
-                line = f"#define nu {nu}f\n"
-            f.write(line)
-
-
-test = False
+test = True
 if __name__ == '__main__':
     start_time = time.time()
     # OPENCL
@@ -131,11 +115,19 @@ if __name__ == '__main__':
     queue = cl.CommandQueue(ctx)
     mf = cl.mem_flags
     # INIT
-    SIZE_X, SIZE_Y, walls = open_image('dessin.png')
-    SIZE_X, SIZE_Y = 2, 3
-    update_file(SIZE_X, SIZE_Y)
-    prog = cl.Program(ctx, open("simul_gpu.cl").read()).build()
-    #
+    # SIZE_X, SIZE_Y, walls = open_image('dessin.png')
+    SIZE_X, SIZE_Y = 3, 4
+    walls = np.array([(0, 1), (1, 1)])
+    # print(walls)
+
+    with open('simul_gpu.cl') as file:
+        code = file.read()
+    code = code.replace('#define SIZE_X', "#define SIZE_X "+str(SIZE_X))
+    code = code.replace('#define SIZE_Y', "#define SIZE_Y "+str(SIZE_Y))
+    code = code.replace('#define nu', "#define nu "+str(nu)+'f')
+
+    prog = cl.Program(ctx, code).build()
+    # Init cpu variables
     rho = np.ones(SIZE_X * SIZE_Y, dtype=np.float32)
     u = np.zeros(SIZE_X * SIZE_Y, dtype=np.float32)
     v = np.zeros(SIZE_X * SIZE_Y, dtype=np.float32)
@@ -145,7 +137,7 @@ if __name__ == '__main__':
     cond_lim = np.array([(j, 0) for j in range(0, SIZE_X)])
     cond_lim_x = np.array(cond_lim[:, 0], dtype=np.int32)
     cond_lim_y = np.array(cond_lim[:, 1], dtype=np.int32)
-    #
+    # Init gpu variables
     rho_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=rho)
     u_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=u)
     v_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=v)
@@ -158,53 +150,53 @@ if __name__ == '__main__':
                              mf.COPY_HOST_PTR, hostbuf=cond_lim_x)
     cond_lim_y_g = cl.Buffer(ctx, mf.READ_WRITE |
                              mf.COPY_HOST_PTR, hostbuf=cond_lim_y)
-    # # Equilibrium dist
+    # Equilibrium dist
     prog.equilibrium_distribution(
         queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, rho_g, u_g, v_g)
-    # # Test equilibrium dist
+    # Test equilibrium dist
     if test:
         cl.enqueue_copy(queue, N, N_g)
         N_test = equilibrium_distribution(
             rho.reshape(SIZE_X, SIZE_Y), u.reshape(SIZE_X, SIZE_Y), v.reshape(SIZE_X, SIZE_Y))
-        # print(N)
-        # print(N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q))
+        # print(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+        # print(N_test)
         print(np.allclose(
-            N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q)), "equilibrium_distribution")
+            N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "equilibrium_distribution")
 
-    # # Distribution initiale perturbée dans un domaine
-    # prog.equilibrium_perturbation(queue, (1,), None, N_g, np.float32(1.0),
-    #                               np.float32(0.5), np.float32(0.0))
-    # # Test perturbation
-    # if test:
-        N_test[:, 10:20, :] = equilibrium_distribution(1.0, 5e-2, 0.0)
+    # Distribution initiale perturbée dans un domaine
+    prog.equilibrium_perturbation(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, np.float32(1.0),
+                                  np.float32(5e-2), np.float32(0.0))
+    # Test perturbation
+    if test:
+        N_test[:, 1:3, :] = equilibrium_distribution(1.0, 5e-2, 0.0)
         cl.enqueue_copy(queue, N, N_g)
         print(np.allclose(
-            N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-1), "eq_perturbation")
-        # print(N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q))
-        # print(N)
+            N, N_test.reshape(SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "equilibrium_perturbation")
+        print("N_test")
+        print(N_test[:, 1:3, :])
+        print("N_gpu")
+        print(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q)[:, 1:3, :])
         # for k in range(SIZE_Y):
-        #     if not np.allclose(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q)[:, k, :], N_test[:, k, :], atol=1e-1):
+        #     if not np.allclose(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q)[:, k, :], N_test[:, k, :], atol=1e-8):
         #         print(k)
-        # print(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q)[0:5, 10, :])
-        # print(N_test[0:5, 10, :])
 
-    # # Récupérer N pour save to vtk
-    # save_to_vtk(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q), "flute_gpu", "img")
+    # Récupérer N pour save to vtk
+    save_to_vtk(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q), "flute_gpu", "img")
 
-    # # Calcul des permutations gpu
-    # P = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.int32)
-    # P_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=P)
-    # prog.calc_permutations(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, P_g)
-    # cl.enqueue_copy(queue, P, P_g)
-    # # Test calcul des permutations
-    # if test:
-    #     P_test = calc_permutations()
-    #     # print(P.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
-    #     # print(P_test.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
-    #     print(np.allclose(P, P_test), "calc_permutations")
+    # Calcul des permutations gpu
+    P = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.int32)
+    P_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=P)
+    prog.calc_permutations(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, P_g)
+    cl.enqueue_copy(queue, P, P_g)
+    # Test calcul des permutations
+    if test:
+        P_test = calc_permutations()
+        # print(P.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+        # print(P_test.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+        print(np.allclose(P, P_test, atol=1e-8), "calc_permutations")
 
     # Boucle
-    for t in range(0):
+    for t in range(2):
         # Collide
         prog.collide(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
                      None, N_g, rho_g, u_g, v_g)
@@ -213,41 +205,59 @@ if __name__ == '__main__':
             cl.enqueue_copy(queue, N, N_g)
             N_test = collide(N_test)
             print(np.allclose(N, N_test.reshape(
-                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-1), "collide", )
+                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "collide", )
 
         # Condtions aux limites
-        prog.impose_vel(queue, (len(cond_lim), LATTICE_Q),
-                        None, N_g, cond_lim_x_g, cond_lim_y_g, np.float32(0.0005))
+        # prog.impose_vel(queue, (len(cond_lim), LATTICE_Q),
+        #                 None, N_g, cond_lim_x_g, cond_lim_y_g, np.float32(1), np.float32(0), np.float32(0.05))
+        cl.enqueue_copy(queue, N, N_g)
+        N = N.reshape(SIZE_X, SIZE_Y, LATTICE_Q)
+        N = impose_vel(N, cond_lim, 0.05)
         # Test conditions aux limites
         if test:
-            cl.enqueue_copy(queue, N, N_g)
+            # cl.enqueue_copy(queue, N, N_g)
             N_test = impose_vel(N_test, cond_lim, 0.05)
-            print(np.allclose(N, N_test.reshape(
-                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-1), "impose_vel")
+            print(np.allclose(N.reshape(SIZE_X*SIZE_Y*LATTICE_Q), N_test.reshape(
+                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "impose_vel")
+            # print(np.allclose(N, N_test.reshape(
+            #     SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "impose_vel")
+            # print("N_gpu")
+            # print(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+            # print("N_test")
+            # print(N_test)
 
         # Stream
+        N = N.reshape(SIZE_X*SIZE_Y*LATTICE_Q)
+        N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
         prog.stream(queue, (SIZE_X, SIZE_Y, LATTICE_Q), None, N_g, P_g)
         # Test stream
         if test:
             cl.enqueue_copy(queue, N, N_g)
             N_test = stream(N_test, P_test)
             print(np.allclose(N, N_test.reshape(
-                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-1), "stream")
+                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "stream")
 
         # Bounce back
-        prog.bounce_back(queue, (SIZE_X, SIZE_Y, LATTICE_Q),
+        prog.bounce_back(queue, (len(walls_x), LATTICE_Q),
                          None, N_g, walls_x_g, walls_y_g)
+
+        cl.enqueue_copy(queue, N, N_g)
+
         # Test bounce back
         if test:
             cl.enqueue_copy(queue, N, N_g)
             N_test = bounce_back(N_test)
             print(np.allclose(N, N_test.reshape(
-                SIZE_X*SIZE_Y*LATTICE_Q), atol=1), "bounce_back")
-
+                SIZE_X*SIZE_Y*LATTICE_Q), atol=1e-8), "bounce_back")
+            # print("N_gpu")
+            # print(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q))
+            # print("N_test")
+            # print(N_test)
         # Récupérer N pour save to vtk
-        if t % 1 == 0:
+
+        if t % 15 == 0:
             cl.enqueue_copy(queue, N, N_g)
             save_to_vtk(N.reshape(SIZE_X, SIZE_Y, LATTICE_Q),
                         "flute_gpu", "img")
-            print(t)
+            print("t =", t)
     print('temps de calcul', time.time() - start_time)

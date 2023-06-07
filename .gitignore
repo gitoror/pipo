@@ -1,0 +1,9 @@
+images
+pipo/images/ 
+pipo/img/ 
+__pycache__/
+*.vti
+*.jpg
+*.pdf
+video_animation/*
+*__pycache__

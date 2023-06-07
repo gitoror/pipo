@@ -35,7 +35,7 @@ def calc_permutations():
 cpt = iter(range(1000000))  # image counter
 
 
-def save_to_vtk(N, name, path='images'):
+def save_to_vtk(N, name, path='images_cpu'):
     rho, u, v = flow_properties(N)
     u = np.reshape(u, (SIZE_X, SIZE_Y, 1), order='C')
     v = np.reshape(v, (SIZE_X, SIZE_Y, 1), order='C')
@@ -95,10 +95,17 @@ def bounce_back(N):
     return N
 
 
-def impose_vel(N, domain, uy):
+def impose_vel(N, domain, ux, uy):
     # uy << 1 car écoulement faiblement compressible 0.05
     for x, y in domain:
-        N[x, y, :] = equilibrium_distribution(1., 0., uy)
+        N[x, y, :] = equilibrium_distribution(1., ux, uy)
+    return N
+
+
+def impose_pressure(N, domain, rho):
+    # uy << 1 car écoulement faiblement compressible 0.05
+    for x, y in domain:
+        N[x, y, :] = equilibrium_distribution(rho, 0., 0.)
     return N
 
 ######################################################################
@@ -120,9 +127,9 @@ if __name__ == '__main__':
     save_to_vtk(N, 'flute_cpu')
     # Calcul de la simulation
     # ATTENTION : l'orde dépend de si le bouceback propage après coup ou avant !!!!!!!
-    for t in range(3000):
+    for t in range(300):
         N = collide(N)
-        impose_vel(N, cond_lim, 0.05)  # condition aux limites
+        impose_vel(N, cond_lim, 0., 0.05)  # condition aux limites
         N = stream(N, P)  # propagation
         N = bounce_back(N)
         if t % 10 == 0:
